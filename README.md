@@ -18,8 +18,111 @@ A modular, scalable, multi-chain crypto payment platform that enables merchants 
 
 ## 🏗️ Architecture Overview
 
+                     [ Users / Merchants Frontend - Next.js @ Vercel ]
+                                      │
+                          ┌───────────▼────────────┐
+                          │    API Gateway Layer    │  ← Auth (JWT), Rate Limiting
+                          └───────────┬────────────┘
+                                      │
+          ┌───────────────────────────▼────────────────────────────┐
+          │           Core Payment Orchestration Service (Go)      │
+          │   - Creates Payment Intents                            │
+          │   - Validates Smart Contract & Signature Status        │
+          │   - Manages Expirations, Escrow, Refunds               │
+          └────┬─────────────┬──────────────┬────────────┬─────────┘
+               │             │              │            │
+     ┌─────────▼───┐ ┌───────▼──────┐ ┌──────▼─────┐ ┌────▼─────────┐
+     │ Ethereum     │ │ Bitcoin         │ │ Solana       │ │ Cardano (opt) │
+     │ Adapter      │ │ Adapter         │ │ Adapter      │ │ Adapter       │
+     │ (Web3 / Go)  │ │ (JSON-RPC / Go) │ │ (Solana.js) │ │ (Plutus / Hask)│
+     └────┬─────────┘ └──────┬────────┘ └─────┬───────┘ └────┬────────┘
+          │                 │                  │              │
+ [ Node RPC / Websockets ]  │        [ Solana Program Exec ]  │
+          │                 │                  │              │
+          ▼                 ▼                  ▼              ▼
+[ Mempool Monitor ]  [ UTXO Listener ]  [ Account Watcher ] [ Plutus Validator ]
+          │
+          ▼
+[ Callback Service → Merchant Webhook / Email / App Notification ]
+
 
 ---
+
+🧩 Solution Design: Key Components
+
+. Frontend (Next.js on Vercel)
+✅ Serverless and scalable UI layer for end users and merchants
+
+⛓️ Connects to Wallets (Metamask, Phantom, Ledger, etc.)
+
+🪪 Integrates with Backend via REST APIs (payment lifecycle)
+
+2. API Gateway Layer
+Handles:
+
+JWT-based authentication
+
+Rate limiting
+
+Request tracing
+
+Can be built with Kong, APISIX, or Go custom gateway
+
+3. Payment Core Orchestrator (Go)
+Stateless microservice managing:
+
+Creation/verification of payment intents
+
+Selection of blockchain backend
+
+Signature validation
+
+Timeout + refund logic
+
+Transaction ledger persistence
+
+4. Blockchain Adapters
+Chain	Adapter Language	Responsibilities
+Ethereum	Go + Web3	Interact with Geth/Infura, call smart contracts
+Bitcoin	Go	Monitor UTXOs via Bitcoin Core
+Solana	JS + Go	Use solana-web3.js to sign/send tx & monitor
+Cardano	Haskell (Plutus)	Smart contracts via on-chain validators
+
+5. Smart Contract Layers
+Solidity: ERC20/ERC721 + escrow/vesting (Ethereum)
+
+Rust: On-chain program logic with SPL tokens (Solana)
+
+Haskell: Formal validation on Cardano (Plutus scripts)
+
+6. Event Listeners & Callback Engine
+Python or Go services
+
+Monitor new transactions, logs, or account state
+
+Dispatch async notifications via Kafka → Callback service → Webhook
+
+7. Storage & Observability
+PostgreSQL + Redis: Payment state, tokens, timestamps
+
+Prometheus + Grafana: Health + latency metrics
+
+OpenTelemetry: Distributed tracing
+
+ELK / Loki: Logs
+
+![alt text](image.png)
+
+![alt text](image-1.png)
+
+🧪 Bonus: Optional Enhancements
+Fraud Engine (Python): Heuristics + ML on on-chain behavior
+
+Oracles (Chainlink / Custom): FX rates, triggers based on off-chain data
+
+Fiat-to-Crypto Gateway via third-party APIs
+
+Merchant Dashboard (React + Tailwind): View history, refunds, etc.
 
 ## ⚙️ Tech Stack
 
