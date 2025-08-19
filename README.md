@@ -191,7 +191,190 @@ Contributions are welcome! Please fork the repo, create a feature branch and sub
 📜 License
 This project is licensed under the MIT License – feel free to fork, enhance, and deploy 🚀
 
+--------------------------------------------------------------------------------------------------------------------------------------
 
----
 
 
+
+crypto-payment-gateway/
+├── 📁 cmd/
+│   └── 📁 api/
+│       └── 🐙 main.go                 # Entry point da aplicação
+│
+├── 📁 internal/
+│   ├── 📁 core/                       # Núcleo da aplicação (Domain)
+│   │   ├── 📁 domain/                 # Entidades e Value Objects
+│   │   │   ├── 🐙 payment.go
+│   │   │   ├── 🐙 merchant.go
+│   │   │   ├── 🐙 blockchain_transaction.go
+│   │   │   └── 🐙 errors.go           # Erros de domínio
+│   │   │
+│   │   ├── 📁 ports/                  # Interfaces (Ports)
+│   │   │   ├── 🐙 repository.go
+│   │   │   ├── 🐙 blockchain.go
+│   │   │   ├── 🐙 exchange.go
+│   │   │   ├── 🐙 notification.go
+│   │   │   └── 🐙 cache.go
+│   │   │
+│   │   └── 📁 services/               # Serviços de domínio
+│   │       ├── 🐙 payment_service.go
+│   │       ├── 🐙 exchange_service.go
+│   │       └── 🐙 validation_service.go
+│   │
+│   ├── 📁 adapters/                   # Implementações concretas
+│   │   ├── 📁 primary/                # Adaptadores de entrada
+│   │   │   ├── 📁 http/
+│   │   │   │   ├── 🐙 handlers.go
+│   │   │   │   ├── 🐙 middleware.go
+│   │   │   │   ├── 🐙 routes.go
+│   │   │   │   └── 🐙 docs.go         # Swagger/OpenAPI
+│   │   │   │
+│   │   │   ├── 📁 grpc/               # Se necessário gRPC
+│   │   │   │   ├── 🐙 server.go
+│   │   │   │   └── 🐙 pb/             # Generated protobuf
+│   │   │   │
+│   │   │   └── 📁 cli/                # CLI adapter
+│   │   │       └── 🐙 commands.go
+│   │   │
+│   │   └── 📁 secondary/              # Adaptadores de saída
+│   │       ├── 📁 repositories/
+│   │       │   ├── 🐙 postgres_repository.go
+│   │       │   ├── 🐙 memory_repository.go     # Para testes
+│   │       │   └── 🐙 repository_factory.go
+│   │       │
+│   │       ├── 📁 blockchain/
+│   │       │   ├── 🐙 bitcoin_adapter.go
+│   │       │   ├── 🐙 ethereum_adapter.go
+│   │       │   ├── 🐙 solana_adapter.go
+│   │       │   └── 🐙 factory.go
+│   │       │
+│   │       ├── 📁 exchange/
+│   │       │   ├── 🐙 cryptocompare_adapter.go
+│   │       │   ├── 🐙 binance_adapter.go
+│   │       │   └── 🐙 factory.go
+│   │       │
+│   │       ├── 📁 notification/
+│   │       │   ├── 🐙 email_adapter.go
+│   │       │   ├── 🐙 webhook_adapter.go
+│   │       │   ├── 🐙 sms_adapter.go
+│   │       │   └── 🐙 factory.go
+│   │       │
+│   │       ├── 📁 cache/
+│   │       │   ├── 🐙 redis_adapter.go
+│   │       │   └── 🐙 memory_cache.go
+│   │       │
+│   │       └── 📁 queue/
+│   │           ├── 🐙 rabbitmq_adapter.go
+│   │           ├── 🐙 nats_adapter.go
+│   │           └── 🐙 memory_queue.go
+│   │
+│   ├── 📁 config/                     # Configuração
+│   │   ├── 🐙 config.go
+│   │   ├── 🐙 database.go
+│   │   ├── 🐙 blockchain.go
+│   │   └── 🐙 load.go                 # Carregamento de config
+│   │
+│   └── 📁 shared/                     # Utilitários compartilhados
+│       ├── 📁 utils/
+│       │   ├── 🐙 crypto_utils.go
+│       │   ├── 🐙 time_utils.go
+│       │   ├── 🐙 validation_utils.go
+│       │   └── 🐙 uuid_generator.go
+│       │
+│       ├── 📁 logger/
+│       │   ├── 🐙 logger.go
+│       │   └── 🐙 zap_logger.go       # Implementação com Zap
+│       │
+│       └── 📁 monitoring/
+│           ├── 🐙 metrics.go
+│           ├── 🐙 tracing.go
+│           └── 🐙 healthcheck.go
+│
+├── 📁 pkg/                            # Pacotes externos reutilizáveis
+│   ├── 📁 api/
+│   │   └── 🐙 responses.go            # Estruturas de resposta padrão
+│   │
+│   └── 📁 errors/
+│       ├── 🐙 app_errors.go
+│       └── 🐙 error_handler.go
+│
+├── 📁 deployments/                    # Arquivos de deploy
+│   ├── 📁 docker/
+│   │   ├── 🐋 Dockerfile
+│   │   ├── 🐋 docker-compose.yml
+│   │   └── 🐋 .dockerignore
+│   │
+│   ├── 📁 kubernetes/
+│   │   ├── 📁 manifests/
+│   │   │   ├── 🐙 deployment.yaml
+│   │   │   ├── 🐙 service.yaml
+│   │   │   ├── 🐙 configmap.yaml
+│   │   │   └── 🐙 ingress.yaml
+│   │   │
+│   │   └── 📁 helm/
+│   │       └── 📁 crypto-gateway/
+│   │           ├── 🐙 Chart.yaml
+│   │           ├── 📁 templates/
+│   │           └── 📁 values/
+│   │
+│   └── 📁 scripts/
+│       ├── 📜 init-db.sql
+│       ├── 📜 migrate.sh
+│       └── 📜 healthcheck.sh
+│
+├── 📁 tests/                          # Testes
+│   ├── 📁 unit/
+│   │   ├── 📁 core/
+│   │   ├── 📁 services/
+│   │   └── 📁 utils/
+│   │
+│   ├── 📁 integration/
+│   │   ├── 📁 api/
+│   │   ├── 📁 database/
+│   │   └── 📁 blockchain/
+│   │
+│   └── 📁 e2e/
+│       ├── 📁 scenarios/
+│       └── 📁 fixtures/
+│
+├── 📁 docs/                           # Documentação
+│   ├── 📁 api/
+│   │   ├── 📘 openapi.yaml
+│   │   └── 📘 postman_collection.json
+│   │
+│   ├── 📁 architecture/
+│   │   ├── 🖼️ hexagonal_architecture.md
+│   │   ├── 🖼️ sequence_diagrams/
+│   │   └── 🖼️ component_diagram.md
+│   │
+│   ├── 📁 setup/
+│   │   ├── 📘 installation.md
+│   │   ├── 📘 configuration.md
+│   │   └── 📘 deployment.md
+│   │
+│   └── 📁 adr/                        # Architecture Decision Records
+│       ├── 📘 001-hexagonal-architecture.md
+│       ├── 📘 002-database-choice.md
+│       └── 📘 003-blockchain-integration.md
+│
+├── 📁 scripts/                        # Scripts utilitários
+│   ├── 📜 build.sh
+│   ├── 📜 test.sh
+│   ├── 📜 lint.sh
+│   └── 📜 codegen.sh                  # Geração de código
+│
+├── 📁 web/                            # Frontend admin (opcional)
+│   └── 📁 static/
+│       ├── 📁 css/
+│       ├── 📁 js/
+│       └── 📁 templates/
+│
+├── 📄 .env.example                    # Variáveis de ambiente exemplo
+├── 📄 .gitignore
+├── 📄 go.mod
+├── 📄 go.sum
+├── 📄 Makefile                        # Comandos automatizados
+├── 📄 docker-compose.yml              # Desenvolvimento
+├── 📄 docker-compose.test.yml         # Testes
+├── 📄 docker-compose.prod.yml         # Produção
+└── 📄 README.md
