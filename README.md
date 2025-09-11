@@ -18,6 +18,13 @@ A modular, scalable, multi-chain crypto payment platform that enables merchants 
 
 ## 🏗️ Architecture Overview
 
+
+
+<img width="438" height="659" alt="image" src="https://github.com/user-attachments/assets/732850a9-d65c-43b4-b2f8-87779407bd50" />
+
+
+---------------------------------------------------------------------------------------------------------------------------------
+
                      [ Users / Merchants Frontend - Next.js @ Vercel ]
                                       │
                           ┌───────────▼────────────┐
