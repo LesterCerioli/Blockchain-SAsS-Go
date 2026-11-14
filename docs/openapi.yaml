@@ -1,0 +1,918 @@
+openapi: 3.1.0
+info:
+  title: Blockchain Payment Gateway API
+  version: 1.0.0
+  description: |
+    Multi-chain payment intents, escrow, refunds and merchant webhooks.
+
+    Authenticate with `X-API-Key: pk_...` or a JWT obtained from
+    `POST /v1/auth/login` using `Authorization: Bearer <token>`.
+
+    All responses use a stable envelope: `{ "data": ..., "request_id": ..., "timestamp": ... }`
+    for success and `{ "error": { "code", "message", "details" } }` for failures.
+servers:
+  - url: http://localhost:8080
+    description: Local development
+security:
+  - ApiKeyAuth: []
+  - BearerAuth: []
+tags:
+  - name: System
+  - name: Auth
+  - name: Merchant
+  - name: Payments
+  - name: Escrows
+  - name: Webhooks
+  - name: Admin
+
+paths:
+  /healthz:
+    get:
+      tags: [System]
+      summary: Liveness probe
+      security: []
+      responses:
+        "200":
+          description: Process is alive
+  /readyz:
+    get:
+      tags: [System]
+      summary: Readiness probe
+      security: []
+      responses:
+        "200":
+          description: All dependencies are healthy
+        "503":
+          description: One or more dependencies are degraded
+  /metrics:
+    get:
+      tags: [System]
+      summary: Prometheus metrics
+      security: []
+      responses:
+        "200":
+          description: Prometheus text exposition
+          content:
+            text/plain:
+              schema:
+                type: string
+  /v1/chains:
+    get:
+      tags: [System]
+      summary: List enabled blockchains and networks
+      security: []
+      responses:
+        "200":
+          description: Supported chains
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/BlockchainInfo"
+  /v1/rates:
+    get:
+      tags: [System]
+      summary: Get an exchange rate
+      security: []
+      parameters:
+        - in: query
+          name: base
+          required: true
+          schema:
+            type: string
+          example: BTC
+        - in: query
+          name: quote
+          required: true
+          schema:
+            type: string
+          example: USD
+      responses:
+        "200":
+          description: Exchange rate
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/ExchangeRate"
+        "503":
+          $ref: "#/components/responses/Error"
+  /v1/merchants/register:
+    post:
+      tags: [Auth]
+      summary: Register a merchant
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email]
+              properties:
+                name:
+                  type: string
+                email:
+                  type: string
+                  format: email
+                webhook_url:
+                  type: string
+                  format: uri
+      responses:
+        "201":
+          description: Merchant created. The API key is only returned once.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          merchant:
+                            $ref: "#/components/schemas/Merchant"
+                          api_key:
+                            type: string
+                          webhook_secret:
+                            type: string
+        "409":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Exchange an API key for a JWT
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [api_key]
+              properties:
+                api_key:
+                  type: string
+      responses:
+        "200":
+          description: JWT issued
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          token:
+                            type: string
+                          token_type:
+                            type: string
+                          expires_at:
+                            type: string
+                            format: date-time
+                          merchant:
+                            $ref: "#/components/schemas/Merchant"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/merchant:
+    get:
+      tags: [Merchant]
+      summary: Get the authenticated merchant
+      responses:
+        "200":
+          description: Merchant profile
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Merchant"
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/merchant/webhook:
+    patch:
+      tags: [Merchant]
+      summary: Update the merchant webhook URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [webhook_url]
+              properties:
+                webhook_url:
+                  type: string
+                  format: uri
+      responses:
+        "200":
+          description: Webhook updated
+        "422":
+          $ref: "#/components/responses/Error"
+  /v1/merchant/rotate-key:
+    post:
+      tags: [Merchant]
+      summary: Rotate the merchant API key
+      responses:
+        "200":
+          description: New API key. The previous key is invalidated immediately.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          merchant:
+                            $ref: "#/components/schemas/Merchant"
+                          api_key:
+                            type: string
+  /v1/payments:
+    post:
+      tags: [Payments]
+      summary: Create a payment intent
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: false
+          schema:
+            type: string
+          description: Replaying the same key returns the original payment intent.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePaymentIntentRequest"
+      responses:
+        "201":
+          description: Payment intent created
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/PaymentIntent"
+        "403":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+    get:
+      tags: [Payments]
+      summary: List payment intents
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - in: query
+          name: status
+          schema:
+            type: string
+          description: Comma separated statuses
+        - in: query
+          name: blockchain
+          schema:
+            type: string
+        - in: query
+          name: from
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: to
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: sort_by
+          schema:
+            type: string
+            enum: [created_at, updated_at, amount, status]
+        - in: query
+          name: sort_order
+          schema:
+            type: string
+            enum: [asc, desc]
+      responses:
+        "200":
+          description: Paginated payment intents
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/ListEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/PaymentIntent"
+  /v1/payments/{id}:
+    get:
+      tags: [Payments]
+      summary: Get a payment intent
+      parameters:
+        - $ref: "#/components/parameters/PaymentID"
+      responses:
+        "200":
+          description: Payment intent
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/PaymentIntent"
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/payments/{id}/confirm:
+    post:
+      tags: [Payments]
+      summary: Confirm an on-chain transaction hash
+      parameters:
+        - $ref: "#/components/parameters/PaymentID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tx_hash]
+              properties:
+                tx_hash:
+                  type: string
+      responses:
+        "200":
+          description: Confirmation applied
+        "422":
+          $ref: "#/components/responses/Error"
+  /v1/payments/{id}/cancel:
+    post:
+      tags: [Payments]
+      summary: Cancel a payment intent that has not received funds
+      parameters:
+        - $ref: "#/components/parameters/PaymentID"
+      responses:
+        "200":
+          description: Payment intent canceled
+        "409":
+          $ref: "#/components/responses/Error"
+  /v1/payments/{id}/refund:
+    post:
+      tags: [Payments]
+      summary: Refund a succeeded payment
+      parameters:
+        - $ref: "#/components/parameters/PaymentID"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                destination_address:
+                  type: string
+                amount:
+                  type: string
+                signed_transaction:
+                  type: string
+                tx_hash:
+                  type: string
+      responses:
+        "200":
+          description: Refund broadcast or recorded
+        "422":
+          $ref: "#/components/responses/Error"
+  /v1/escrows:
+    post:
+      tags: [Escrows]
+      summary: Create a time-locked escrow for a succeeded payment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [payment_intent_id, beneficiary]
+              properties:
+                payment_intent_id:
+                  type: string
+                  format: uuid
+                beneficiary:
+                  type: string
+                arbiter:
+                  type: string
+                release_at:
+                  type: string
+                  format: date-time
+      responses:
+        "201":
+          description: Escrow funded
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Escrow"
+        "422":
+          $ref: "#/components/responses/Error"
+    get:
+      tags: [Escrows]
+      summary: List escrows
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Paginated escrows
+  /v1/escrows/{id}:
+    get:
+      tags: [Escrows]
+      summary: Get an escrow
+      parameters:
+        - $ref: "#/components/parameters/EscrowID"
+      responses:
+        "200":
+          description: Escrow
+        "404":
+          $ref: "#/components/responses/Error"
+  /v1/escrows/{id}/release:
+    post:
+      tags: [Escrows]
+      summary: Release escrow funds
+      parameters:
+        - $ref: "#/components/parameters/EscrowID"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EscrowExecutionRequest"
+      responses:
+        "200":
+          description: Escrow released
+        "403":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+  /v1/escrows/{id}/refund:
+    post:
+      tags: [Escrows]
+      summary: Refund escrow funds
+      parameters:
+        - $ref: "#/components/parameters/EscrowID"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EscrowExecutionRequest"
+      responses:
+        "200":
+          description: Escrow refunded
+  /v1/escrows/{id}/cancel:
+    post:
+      tags: [Escrows]
+      summary: Cancel an escrow
+      parameters:
+        - $ref: "#/components/parameters/EscrowID"
+      responses:
+        "200":
+          description: Escrow canceled
+  /v1/webhooks/deliveries:
+    get:
+      tags: [Webhooks]
+      summary: List webhook deliveries
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Paginated webhook deliveries
+  /v1/webhooks/test:
+    post:
+      tags: [Webhooks]
+      summary: Send a test webhook to the merchant endpoint
+      responses:
+        "200":
+          description: Test delivery attempted
+        "422":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+  /v1/webhooks/blockchain:
+    post:
+      tags: [Webhooks]
+      summary: Ingest a signed blockchain transaction notification
+      description: |
+        Used by external chain listeners or node providers. When
+        `INBOUND_WEBHOOK_SECRET` is set, requests must include
+        `X-Webhook-Timestamp` and `X-Signature: sha256=<hex hmac>` where the HMAC
+        is computed over `<timestamp>.<body>`.
+      security: []
+      parameters:
+        - in: header
+          name: X-Webhook-Timestamp
+          schema:
+            type: string
+        - in: header
+          name: X-Signature
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InboundTransaction"
+      responses:
+        "200":
+          description: Matched payment intent updated
+        "202":
+          description: No matching payment intent (accepted, not recorded)
+        "401":
+          $ref: "#/components/responses/Error"
+  /v1/audit-logs:
+    get:
+      tags: [Merchant]
+      summary: List merchant audit logs
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Paginated audit logs
+  /v1/admin/merchants:
+    get:
+      tags: [Admin]
+      summary: List all merchants (admin key required)
+      parameters:
+        - in: header
+          name: X-Admin-Key
+          required: true
+          schema:
+            type: string
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: Paginated merchants
+        "401":
+          $ref: "#/components/responses/Error"
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Page:
+      in: query
+      name: page
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PageSize:
+      in: query
+      name: page_size
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+        default: 50
+    PaymentID:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+        format: uuid
+    EscrowID:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: string
+        format: uuid
+  responses:
+    Error:
+      description: Error envelope
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorEnvelope"
+  schemas:
+    SuccessEnvelope:
+      type: object
+      properties:
+        data: {}
+        request_id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+    ListEnvelope:
+      type: object
+      properties:
+        data:
+          type: array
+          items: {}
+        pagination:
+          type: object
+          properties:
+            page:
+              type: integer
+            page_size:
+              type: integer
+            total:
+              type: integer
+        request_id:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+    ErrorEnvelope:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+            message:
+              type: string
+            details:
+              type: object
+              additionalProperties: true
+            request_id:
+              type: string
+            timestamp:
+              type: string
+              format: date-time
+    BlockchainInfo:
+      type: object
+      properties:
+        type:
+          type: string
+        network:
+          type: string
+        name:
+          type: string
+        symbol:
+          type: string
+        decimals:
+          type: integer
+        block_time:
+          type: number
+        required_confirmations:
+          type: integer
+        is_token_supported:
+          type: boolean
+        is_smart_contract_supported:
+          type: boolean
+        is_staking_supported:
+          type: boolean
+        explorer_url:
+          type: string
+    ExchangeRate:
+      type: object
+      properties:
+        base:
+          type: string
+        quote:
+          type: string
+        rate:
+          type: number
+        source:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+    Merchant:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+        api_key_prefix:
+          type: string
+        webhook_url:
+          type: string
+        status:
+          type: string
+          enum: [pending, active, suspended, closed]
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CreatePaymentIntentRequest:
+      type: object
+      required: [amount, currency]
+      properties:
+        amount:
+          type: string
+          example: "0.5"
+        currency:
+          type: string
+          example: ETH
+        crypto_currency:
+          type: string
+        blockchain:
+          type: string
+          enum: [ethereum, bitcoin, solana, cardano, polygon, bsc]
+        network:
+          type: string
+        merchantId:
+          type: string
+          format: uuid
+        reference:
+          type: string
+        description:
+          type: string
+        expiresIn:
+          type: integer
+          description: Expiration in seconds
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+    PaymentIntent:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        merchant_id:
+          type: string
+          format: uuid
+        reference:
+          type: string
+        description:
+          type: string
+        amount:
+          type: string
+        currency:
+          type: string
+        crypto_amount:
+          type: string
+        crypto_currency:
+          type: string
+        blockchain:
+          type: string
+        network:
+          type: string
+        deposit_address:
+          type: string
+        status:
+          type: string
+          enum:
+            [requires_payment, under_review, processing, requires_confirmation,
+             succeeded, failed, expired, canceled, refunded]
+        expires_at:
+          type: string
+          format: date-time
+        tx_hash:
+          type: string
+        confirmations:
+          type: integer
+        required_confirmations:
+          type: integer
+        paid_amount:
+          type: string
+        fee_amount:
+          type: string
+        refund_tx_hash:
+          type: string
+        risk_score:
+          type: integer
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+    EscrowExecutionRequest:
+      type: object
+      properties:
+        tx_hash:
+          type: string
+        signed_transaction:
+          type: string
+        force:
+          type: boolean
+    Escrow:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        merchant_id:
+          type: string
+          format: uuid
+        payment_intent_id:
+          type: string
+          format: uuid
+        amount:
+          type: string
+        currency:
+          type: string
+        crypto_amount:
+          type: string
+        crypto_currency:
+          type: string
+        blockchain:
+          type: string
+        network:
+          type: string
+        beneficiary:
+          type: string
+        arbiter:
+          type: string
+        release_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [pending, funded, released, refunded, canceled, expired]
+        released_at:
+          type: string
+          format: date-time
+        refunded_at:
+          type: string
+          format: date-time
+        tx_hash:
+          type: string
+    InboundTransaction:
+      type: object
+      required: [blockchain, tx_hash, to, amount]
+      properties:
+        blockchain:
+          type: string
+        network:
+          type: string
+        tx_hash:
+          type: string
+        from:
+          type: string
+        to:
+          type: string
+        amount:
+          type: string
+        fee:
+          type: string
+        confirmations:
+          type: integer
+        status:
+          type: string
+        block_number:
+          type: integer
+        block_hash:
+          type: string
