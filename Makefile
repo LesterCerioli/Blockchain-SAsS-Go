@@ -7,6 +7,7 @@ GO := go
 all: fmt vet test build
 
 build:
+	mkdir -p $(BIN_DIR)
 	$(GO) build -trimpath -ldflags "-s -w" -o $(BIN_DIR)/$(APP_NAME) ./cmd
 
 run:
