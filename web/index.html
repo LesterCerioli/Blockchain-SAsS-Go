@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Blockchain Payment Gateway</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b1020;
+      --panel: #141a2e;
+      --panel-2: #1b2340;
+      --text: #e8ecff;
+      --muted: #93a0c8;
+      --accent: #5b8cff;
+      --green: #34d399;
+      --amber: #fbbf24;
+      --red: #f87171;
+      --border: #263154;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top left, #1a2450 0%, var(--bg) 55%);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    header {
+      padding: 28px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+    }
+    header h1 { margin: 0; font-size: 20px; letter-spacing: -.02em; }
+    header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+    main { padding: 24px 32px 64px; display: grid; gap: 24px; max-width: 1280px; margin: 0 auto; }
+    .grid { display: grid; gap: 24px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+    .panel {
+      background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, .25);
+    }
+    .panel h2 { margin: 0 0 14px; font-size: 15px; color: var(--text); }
+    label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 6px; }
+    input, select, button {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: #0d1326;
+      color: var(--text);
+      font-size: 14px;
+      outline: none;
+    }
+    input:focus, select:focus { border-color: var(--accent); }
+    button {
+      margin-top: 14px;
+      background: var(--accent);
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+      transition: filter .15s ease;
+    }
+    button:hover { filter: brightness(1.1); }
+    button.secondary { background: #232e52; }
+    .row { display: flex; gap: 12px; }
+    .row > * { flex: 1; }
+    .status { font-size: 12px; color: var(--muted); margin-top: 10px; min-height: 18px; }
+    .status.error { color: var(--red); }
+    .status.ok { color: var(--green); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+    td.mono, .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+    .pill { display: inline-block; padding: 3px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    .pill.requires_payment, .pill.processing { background: rgba(251,191,36,.15); color: var(--amber); }
+    .pill.succeeded, .pill.funded, .pill.released { background: rgba(52,211,153,.15); color: var(--green); }
+    .pill.failed, .pill.canceled, .pill.expired, .pill.refunded { background: rgba(248,113,113,.15); color: var(--red); }
+    .empty { color: var(--muted); font-size: 13px; padding: 18px 0; }
+    .key-output {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 10px;
+      background: #0d1326;
+      border: 1px dashed var(--border);
+      font-family: ui-monospace, monospace;
+      font-size: 12px;
+      word-break: break-all;
+      display: none;
+    }
+    .toolbar { display: flex; gap: 10px; align-items: center; }
+    .toolbar input { max-width: 360px; }
+    .toolbar button { width: auto; margin: 0; padding: 10px 16px; }
+    .muted { color: var(--muted); }
+    @media (max-width: 640px) { header, main { padding-left: 16px; padding-right: 16px; } }
+  </style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Blockchain Payment Gateway</h1>
+    <p>Multi-chain payment intents, escrow and webhooks</p>
+  </div>
+  <div class="toolbar">
+    <input id="apiKey" type="password" placeholder="pk_test_... API key" autocomplete="off">
+    <button id="connect">Connect</button>
+  </div>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>Merchant session</h2>
+    <div class="grid">
+      <div>
+        <label for="registerName">Name</label>
+        <input id="registerName" placeholder="Acme Store">
+        <label for="registerEmail">Email</label>
+        <input id="registerEmail" type="email" placeholder="merchant@example.com">
+        <label for="registerWebhook">Webhook URL (optional)</label>
+        <input id="registerWebhook" placeholder="https://merchant.example.com/webhooks/payments">
+        <button id="register" class="secondary">Create merchant</button>
+        <div id="registerStatus" class="status"></div>
+        <div id="keyOutput" class="key-output"></div>
+      </div>
+      <div>
+        <h2 style="margin-top:0">Current merchant</h2>
+        <div id="merchantInfo" class="empty">Connect an API key to load merchant details.</div>
+        <div style="margin-top:16px">
+          <h2>Supported chains</h2>
+          <div id="chains" class="empty">Loading…</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Create payment intent</h2>
+    <div class="grid">
+      <div>
+        <label for="amount">Amount</label>
+        <input id="amount" value="0.01" placeholder="0.01">
+        <label for="currency">Currency</label>
+        <select id="currency">
+          <option>ETH</option>
+          <option>BTC</option>
+          <option>SOL</option>
+          <option>USDT</option>
+          <option>USD</option>
+        </select>
+        <label for="reference">Reference (optional)</label>
+        <input id="reference" placeholder="order-1234">
+      </div>
+      <div>
+        <label for="blockchain">Blockchain</label>
+        <select id="blockchain">
+          <option value="ethereum">Ethereum</option>
+          <option value="bitcoin">Bitcoin</option>
+          <option value="solana">Solana</option>
+          <option value="cardano">Cardano</option>
+        </select>
+        <label for="network">Network</label>
+        <select id="network">
+          <option value="sepolia">Sepolia</option>
+          <option value="testnet">Testnet</option>
+          <option value="devnet">Devnet</option>
+          <option value="mainnet">Mainnet</option>
+        </select>
+        <button id="createPayment">Create payment intent</button>
+        <div id="createStatus" class="status"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <h2 style="margin:0">Payment intents</h2>
+      <button id="refresh" class="secondary" style="width:auto;margin:0;padding:8px 14px">Refresh</button>
+    </div>
+    <div style="overflow-x:auto;margin-top:12px">
+      <table>
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Reference</th>
+            <th>Amount</th>
+            <th>Crypto</th>
+            <th>Chain</th>
+            <th>Status</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody id="payments">
+          <tr><td colspan="7" class="empty">Connect an API key to load payments.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div id="paymentsStatus" class="status"></div>
+  </section>
+</main>
+
+<script>
+  const state = { apiKey: localStorage.getItem("gateway_api_key") || "" };
+
+  const $ = (id) => document.getElementById(id);
+  const apiKeyInput = $("apiKey");
+  apiKeyInput.value = state.apiKey;
+
+  function setStatus(id, message, kind) {
+    const el = $(id);
+    el.textContent = message || "";
+    el.className = "status" + (kind ? " " + kind : "");
+  }
+
+  async function api(path, options = {}) {
+    const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+    if (state.apiKey) headers["X-API-Key"] = state.apiKey;
+    const response = await fetch(path, { ...options, headers });
+    const text = await response.text();
+    let payload = null;
+    try { payload = text ? JSON.parse(text) : null; } catch (_) { payload = { raw: text }; }
+    if (!response.ok) {
+      const message = payload?.error?.message || response.statusText;
+      throw new Error(message);
+    }
+    return payload;
+  }
+
+  async function loadMerchant() {
+    if (!state.apiKey) return;
+    try {
+      const payload = await api("/v1/merchant");
+      const merchant = payload.data;
+      $("merchantInfo").className = "";
+      $("merchantInfo").innerHTML = `
+        <div class="mono">${merchant.id}</div>
+        <div>${merchant.name} · ${merchant.email}</div>
+        <div class="muted">Status: ${merchant.status}</div>
+        <div class="muted">Webhook: ${merchant.webhook_url || "not configured"}</div>`;
+    } catch (error) {
+      setStatus("paymentsStatus", error.message, "error");
+    }
+  }
+
+  async function loadPayments() {
+    if (!state.apiKey) return;
+    try {
+      const payload = await api("/v1/payments?limit=50");
+      const payments = payload.data || [];
+      const body = $("payments");
+      if (!payments.length) {
+        body.innerHTML = '<tr><td colspan="7" class="empty">No payment intents yet.</td></tr>';
+        return;
+      }
+      body.innerHTML = payments.map((payment) => `
+        <tr>
+          <td class="mono">${payment.id.slice(0, 8)}…</td>
+          <td>${payment.reference || "—"}</td>
+          <td>${payment.amount} ${payment.currency}</td>
+          <td>${payment.crypto_amount} ${payment.crypto_currency}</td>
+          <td>${payment.blockchain}<br><span class="muted">${payment.network}</span></td>
+          <td><span class="pill ${payment.status}">${payment.status}</span></td>
+          <td class="muted">${new Date(payment.created_at).toLocaleString()}</td>
+        </tr>`).join("");
+      setStatus("paymentsStatus", `${payments.length} payment intent(s)`, "ok");
+    } catch (error) {
+      setStatus("paymentsStatus", error.message, "error");
+    }
+  }
+
+  async function loadChains() {
+    try {
+      const payload = await api("/v1/chains");
+      const chains = payload.data || [];
+      $("chains").className = "";
+      $("chains").innerHTML = chains.length
+        ? chains.map((chain) => `<div>• ${chain.name} <span class="muted">(${chain.symbol}, ${chain.required_confirmations} confs)</span></div>`).join("")
+        : '<div class="empty">No chains enabled.</div>';
+    } catch (error) {
+      $("chains").textContent = error.message;
+      $("chains").className = "status error";
+    }
+  }
+
+  async function connect() {
+    state.apiKey = apiKeyInput.value.trim();
+    localStorage.setItem("gateway_api_key", state.apiKey);
+    await Promise.all([loadMerchant(), loadPayments()]);
+  }
+
+  $("connect").addEventListener("click", connect);
+
+  $("refresh").addEventListener("click", loadPayments);
+
+  $("register").addEventListener("click", async () => {
+    setStatus("registerStatus", "Creating merchant…");
+    try {
+      const payload = await api("/v1/merchants/register", {
+        method: "POST",
+        body: JSON.stringify({
+          name: $("registerName").value.trim(),
+          email: $("registerEmail").value.trim(),
+          webhook_url: $("registerWebhook").value.trim(),
+        }),
+      });
+      const { api_key, webhook_secret, merchant } = payload.data;
+      state.apiKey = api_key;
+      apiKeyInput.value = api_key;
+      localStorage.setItem("gateway_api_key", api_key);
+      $("keyOutput").style.display = "block";
+      $("keyOutput").textContent = `API key: ${api_key}\nWebhook secret: ${webhook_secret}`;
+      setStatus("registerStatus", `Merchant ${merchant.name} created. Store the API key now.`, "ok");
+      await Promise.all([loadMerchant(), loadPayments()]);
+    } catch (error) {
+      setStatus("registerStatus", error.message, "error");
+    }
+  });
+
+  $("createPayment").addEventListener("click", async () => {
+    setStatus("createStatus", "Creating…");
+    try {
+      const payload = await api("/v1/payments", {
+        method: "POST",
+        body: JSON.stringify({
+          amount: $("amount").value.trim(),
+          currency: $("currency").value,
+          blockchain: $("blockchain").value,
+          network: $("network").value,
+          reference: $("reference").value.trim(),
+        }),
+      });
+      const payment = payload.data;
+      setStatus("createStatus", `Created ${payment.id} — send ${payment.crypto_amount} ${payment.crypto_currency} to ${payment.deposit_address}`, "ok");
+      await loadPayments();
+    } catch (error) {
+      setStatus("createStatus", error.message, "error");
+    }
+  });
+
+  loadChains();
+  if (state.apiKey) connect();
+</script>
+</body>
+</html>
