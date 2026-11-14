@@ -2,7 +2,6 @@ package types
 
 import "math/big"
 
-// EthereumTxType representa o tipo de transação Ethereum (EIP-2718)
 type EthereumTxType uint8
 
 const (
@@ -11,7 +10,6 @@ const (
 	EthereumTxTypeEIP1559 EthereumTxType = 2
 )
 
-// TokenType representa o tipo de token Ethereum
 type TokenType string
 
 const (
@@ -20,7 +18,6 @@ const (
 	TokenTypeERC1155 TokenType = "ERC1155"
 )
 
-// EthereumNetwork representa redes Ethereum específicas
 type EthereumNetwork string
 
 const (
@@ -30,7 +27,6 @@ const (
 	EthereumNetworkOptimism EthereumNetwork = "optimism"
 )
 
-// GasInfo contém informações sobre gas Ethereum
 type GasInfo struct {
 	Limit    uint64   `json:"limit"`
 	Used     uint64   `json:"used"`
@@ -39,7 +35,6 @@ type GasInfo struct {
 	MaxFee   *big.Int `json:"max_fee,omitempty"`
 }
 
-// EthereumBlock representa um bloco Ethereum
 type EthereumBlock struct {
 	Number       *big.Int `json:"number"`
 	Hash         string   `json:"hash"`
@@ -51,7 +46,6 @@ type EthereumBlock struct {
 	BaseFee      *big.Int `json:"base_fee,omitempty"`
 }
 
-// String retorna a representação string do tipo de transação Ethereum
 func (t EthereumTxType) String() string {
 	switch t {
 	case EthereumTxTypeLegacy:
@@ -65,22 +59,18 @@ func (t EthereumTxType) String() string {
 	}
 }
 
-// IsEIP1559 verifica se é uma transação EIP-1559
 func (t EthereumTxType) IsEIP1559() bool {
 	return t == EthereumTxTypeEIP1559
 }
 
-// IsLegacy verifica se é uma transação legada
 func (t EthereumTxType) IsLegacy() bool {
 	return t == EthereumTxTypeLegacy
 }
 
-// String retorna a representação string da rede Ethereum
 func (n EthereumNetwork) String() string {
 	return string(n)
 }
 
-// ToBlockchainNetwork converte EthereumNetwork para BlockchainNetwork
 func (n EthereumNetwork) ToBlockchainNetwork() BlockchainNetwork {
 	switch n {
 	case EthereumNetworkGoerli:
@@ -96,7 +86,6 @@ func (n EthereumNetwork) ToBlockchainNetwork() BlockchainNetwork {
 	}
 }
 
-// EthereumNetworkFromBlockchain converte BlockchainNetwork para EthereumNetwork
 func EthereumNetworkFromBlockchain(network BlockchainNetwork) EthereumNetwork {
 	switch network {
 	case NetworkEthereumGoerli:

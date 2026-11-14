@@ -6,10 +6,10 @@ A modular, scalable, multi-chain crypto payment platform that enables merchants 
 
 ## 🚀 Features
 
-- 💳 **Multi-chain support** (Ethereum, Bitcoin, Solana)
+- 💳 **Multi-chain support** (Ethereum, Bitcoin, Solana, Cardano)
 - 🔁 **Payment Intents**, Escrow, Time-locked releases
 - ⚙️ **Smart Contracts**: Solidity, Rust, and Plutus (Haskell)
-- 📡 **Real-time blockchain event listeners**
+- 📡 **Blockchain watchers, confirmation workers and signed inbound notifications**
 - 🛡️ End-to-end **security**, auditability, and resilience
 - ⚙️ RESTful APIs and Webhooks for merchant integrations
 - 🌐 Extensible with NFTs, stablecoins, tokenized assets, and oracles
@@ -133,64 +133,113 @@ Merchant Dashboard (React + Tailwind): View history, refunds, etc.
 
 ## ⚙️ Tech Stack
 
-| Layer               | Technology                                      |
-|--------------------|--------------------------------------------------|
-| Frontend           | Next.js (TypeScript) - deployed on Vercel        |
-| Backend Core       | Go (Golang), Python (event engine, antifraud)    |
-| Smart Contracts    | Solidity (Ethereum), Rust (Solana), Haskell (Cardano) |
-| Nodes              | Geth, Bitcoin Core, Solana Validator             |
-| Blockchain Access  | Web3.py, Solana-web3.js, Bitcoinlib, Haskell Plutus |
-| Messaging Layer    | Kafka or NATS                                    |
-| Observability      | Prometheus, Grafana, Loki/ELK                    |
-| Persistence        | PostgreSQL, Redis                                |
-| Infra              | Kubernetes (EKS/GKE), Helm, CI/CD (GitHub Actions) |
+| Layer              | Technology in this repository |
+| ------------------ | ----------------------------- |
+| Frontend           | Static HTML/JS merchant dashboard |
+| Backend Core       | Go (stdlib `net/http`, `log/slog`) |
+| Smart Contracts    | Solidity, Rust (Anchor), Haskell (Plutus) reference contracts |
+| Blockchain Access  | Direct JSON-RPC / REST adapters, mock simulator |
+| Messaging Layer    | In-memory queue behind a `Queue` port (Kafka/NATS ready) |
+| Observability      | Prometheus metrics + structured logs |
+| Persistence        | PostgreSQL + Redis, with in-memory fallbacks |
+| Infra              | Docker Compose, Kubernetes manifest, Makefile |
 
 ---
 
-## 📦 API Endpoints
+## ✅ Running this implementation
 
-### `POST /payment/intent`
+The Go service in this repository implements the payment core, chain adapters,
+escrow, fraud checks, webhooks, persistence, metrics and a local dashboard.
 
-Creates a new payment intent.
-
-```json
-{
-  "amount": "0.5",
-  "currency": "ETH",
-  "merchantId": "merchant_xyz",
-  "expiresIn": 600
-}
-
-git clone https://github.com/seu-usuario/blockchain-gateway.git
-cd blockchain-gateway
-
-docker-compose up
-
-
-go run ./cmd/server/main.go
-
-
+```bash
 cp .env.example .env
+# local development: simulate chains, use in-memory storage
+BLOCKCHAIN_MOCK=true DATABASE_DRIVER=memory CACHE_DRIVER=memory go run ./cmd serve
+# dashboard: http://localhost:8080
+```
 
+Production-style stack with PostgreSQL, Redis, Prometheus and Grafana:
 
-🌐 Supported Networks
-✅ Ethereum Mainnet / Goerli
+```bash
+make docker-up
+```
 
-✅ Bitcoin Mainnet / Testnet
+### CLI
 
-✅ Solana Mainnet-beta / Devnet
+```bash
+go run ./cmd migrate
+go run ./cmd merchant create --name "Acme" --email merchant@example.com
+go run ./cmd merchant list
+go run ./cmd payment list --merchant merchant@example.com
+go run ./cmd payment get --id <uuid>
+```
 
+### API
 
-🛠️ Roadmap
-[ ] NFT payment modules
+| Method | Path | Description |
+| --- | --- | --- |
+| `POST` | `/v1/merchants/register` | Register a merchant and receive an API key |
+| `POST` | `/v1/auth/login` | Exchange an API key for a JWT |
+| `GET` | `/v1/merchant` | Current merchant profile |
+| `PATCH` | `/v1/merchant/webhook` | Update webhook URL |
+| `POST` | `/v1/merchant/rotate-key` | Rotate API key |
+| `POST` | `/v1/payments` | Create a payment intent |
+| `GET` | `/v1/payments` | List payment intents |
+| `GET` | `/v1/payments/{id}` | Get a payment intent |
+| `POST` | `/v1/payments/{id}/confirm` | Confirm a transaction hash |
+| `POST` | `/v1/payments/{id}/cancel` | Cancel an unpaid intent |
+| `POST` | `/v1/payments/{id}/refund` | Refund a succeeded payment |
+| `POST` | `/v1/escrows` | Create a time-locked escrow |
+| `GET` | `/v1/escrows` | List escrows |
+| `GET` | `/v1/escrows/{id}` | Get an escrow |
+| `POST` | `/v1/escrows/{id}/release` | Release escrow funds |
+| `POST` | `/v1/escrows/{id}/refund` | Refund escrow funds |
+| `POST` | `/v1/escrows/{id}/cancel` | Cancel an escrow |
+| `GET` | `/v1/webhooks/deliveries` | List webhook delivery attempts |
+| `POST` | `/v1/webhooks/test` | Send a test webhook |
+| `POST` | `/v1/webhooks/blockchain` | Signed inbound chain notification |
+| `GET` | `/v1/audit-logs` | Merchant audit trail |
+| `GET` | `/v1/chains`, `/v1/rates` | Supported chains and exchange rates |
+| `GET` | `/healthz`, `/readyz`, `/metrics` | Health and Prometheus metrics |
 
-[ ] Dashboard analytics (Grafana + Ledger)
+Full API contract: [`docs/openapi.yaml`](docs/openapi.yaml).
+Architecture and security notes: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Webhook signing: [`docs/WEBHOOKS.md`](docs/WEBHOOKS.md).
 
-[ ] Fiat on-ramp integrations
+### Example
 
-[ ] Multilingual merchant SDKs (JS, Python, Go)
+```bash
+curl -X POST http://localhost:8080/v1/merchants/register \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Acme","email":"merchant@example.com"}'
 
-[ ] Chain-agnostic abstraction layer
+curl -X POST http://localhost:8080/v1/payments \
+  -H "X-API-Key: pk_test_..." \
+  -H 'Content-Type: application/json' \
+  -d '{"amount":"0.5","currency":"ETH","blockchain":"ethereum","network":"sepolia"}'
+```
+
+---
+
+## 🌐 Supported Networks
+
+- Ethereum Mainnet / Goerli / Sepolia
+- Bitcoin Mainnet / Testnet / Signet / Regtest
+- Solana Mainnet-beta / Devnet
+- Cardano Mainnet / Testnet (Blockfrost-compatible API)
+- Any chain through the mock adapter for local development
+
+## 🛠️ Roadmap
+
+- [x] Chain-agnostic adapter layer
+- [x] Payment intents, escrow and signed webhooks
+- [x] Prometheus metrics and health probes
+- [ ] Grafana dashboard bundle
+- [ ] NFT payment modules
+- [ ] Fiat on-ramp integrations
+- [ ] Multilingual merchant SDKs (JS, Python, Go)
+- [ ] gRPC transport and Kafka/NATS queue adapters
+- [ ] KMS/HSM or custody-provider signing integration
 
 🤝 Contributing
 Contributions are welcome! Please fork the repo, create a feature branch and submit a pull request.
@@ -200,188 +249,28 @@ This project is licensed under the MIT License – feel free to fork, enhance, a
 
 --------------------------------------------------------------------------------------------------------------------------------------
 
+## 📁 Repository Layout
 
+```text
+cmd/main.go                         process entrypoint
+internal/app/                       wiring, HTTP server, worker lifecycle
+internal/config/                    environment configuration
+internal/core/domain/               entities, value objects, ports
+internal/core/services/             payment, escrow, webhook, fraud use cases
+internal/core/adapters/primary/     HTTP handlers/middleware and CLI
+internal/core/adapters/secondary/   Postgres/memory, chains, exchanges, cache, queue
+internal/workers/                   expiration, confirmations, watcher, callbacks, escrow
+internal/shared/                    logger, metrics, health, crypto/JWT utilities
+pkg/                                public response/error helpers
+web/index.html                      local merchant dashboard
+contracts/                          reference Solidity/Rust/Plutus contracts
+docs/                               architecture, webhooks, OpenAPI
+deployments/                        Dockerfile, Compose, Prometheus, Kubernetes
+```
 
-
-crypto-payment-gateway/
-├── 📁 cmd/
-│   └── 📁 api/
-│       └── 🐙 main.go                 # Entry point da aplicação
-│
-├── 📁 internal/
-│   ├── 📁 core/                       # Núcleo da aplicação (Domain)
-│   │   ├── 📁 domain/                 # Entidades e Value Objects
-│   │   │   ├── 🐙 payment.go
-│   │   │   ├── 🐙 merchant.go
-│   │   │   ├── 🐙 blockchain_transaction.go
-│   │   │   └── 🐙 errors.go           # Erros de domínio
-│   │   │
-│   │   ├── 📁 ports/                  # Interfaces (Ports)
-│   │   │   ├── 🐙 repository.go
-│   │   │   ├── 🐙 blockchain.go
-│   │   │   ├── 🐙 exchange.go
-│   │   │   ├── 🐙 notification.go
-│   │   │   └── 🐙 cache.go
-│   │   │
-│   │   └── 📁 services/               # Serviços de domínio
-│   │       ├── 🐙 payment_service.go
-│   │       ├── 🐙 exchange_service.go
-│   │       └── 🐙 validation_service.go
-│   │
-│   ├── 📁 adapters/                   # Implementações concretas
-│   │   ├── 📁 primary/                # Adaptadores de entrada
-│   │   │   ├── 📁 http/
-│   │   │   │   ├── 🐙 handlers.go
-│   │   │   │   ├── 🐙 middleware.go
-│   │   │   │   ├── 🐙 routes.go
-│   │   │   │   └── 🐙 docs.go         # Swagger/OpenAPI
-│   │   │   │
-│   │   │   ├── 📁 grpc/               # Se necessário gRPC
-│   │   │   │   ├── 🐙 server.go
-│   │   │   │   └── 🐙 pb/             # Generated protobuf
-│   │   │   │
-│   │   │   └── 📁 cli/                # CLI adapter
-│   │   │       └── 🐙 commands.go
-│   │   │
-│   │   └── 📁 secondary/              # Adaptadores de saída
-│   │       ├── 📁 repositories/
-│   │       │   ├── 🐙 postgres_repository.go
-│   │       │   ├── 🐙 memory_repository.go     # Para testes
-│   │       │   └── 🐙 repository_factory.go
-│   │       │
-│   │       ├── 📁 blockchain/
-│   │       │   ├── 🐙 bitcoin_adapter.go
-│   │       │   ├── 🐙 ethereum_adapter.go
-│   │       │   ├── 🐙 solana_adapter.go
-│   │       │   └── 🐙 factory.go
-│   │       │
-│   │       ├── 📁 exchange/
-│   │       │   ├── 🐙 cryptocompare_adapter.go
-│   │       │   ├── 🐙 binance_adapter.go
-│   │       │   └── 🐙 factory.go
-│   │       │
-│   │       ├── 📁 notification/
-│   │       │   ├── 🐙 email_adapter.go
-│   │       │   ├── 🐙 webhook_adapter.go
-│   │       │   ├── 🐙 sms_adapter.go
-│   │       │   └── 🐙 factory.go
-│   │       │
-│   │       ├── 📁 cache/
-│   │       │   ├── 🐙 redis_adapter.go
-│   │       │   └── 🐙 memory_cache.go
-│   │       │
-│   │       └── 📁 queue/
-│   │           ├── 🐙 rabbitmq_adapter.go
-│   │           ├── 🐙 nats_adapter.go
-│   │           └── 🐙 memory_queue.go
-│   │
-│   ├── 📁 config/                     # Configuração
-│   │   ├── 🐙 config.go
-│   │   ├── 🐙 database.go
-│   │   ├── 🐙 blockchain.go
-│   │   └── 🐙 load.go                 # Carregamento de config
-│   │
-│   └── 📁 shared/                     # Utilitários compartilhados
-│       ├── 📁 utils/
-│       │   ├── 🐙 crypto_utils.go
-│       │   ├── 🐙 time_utils.go
-│       │   ├── 🐙 validation_utils.go
-│       │   └── 🐙 uuid_generator.go
-│       │
-│       ├── 📁 logger/
-│       │   ├── 🐙 logger.go
-│       │   └── 🐙 zap_logger.go       # Implementação com Zap
-│       │
-│       └── 📁 monitoring/
-│           ├── 🐙 metrics.go
-│           ├── 🐙 tracing.go
-│           └── 🐙 healthcheck.go
-│
-├── 📁 pkg/                            # Pacotes externos reutilizáveis
-│   ├── 📁 api/
-│   │   └── 🐙 responses.go            # Estruturas de resposta padrão
-│   │
-│   └── 📁 errors/
-│       ├── 🐙 app_errors.go
-│       └── 🐙 error_handler.go
-│
-├── 📁 deployments/                    # Arquivos de deploy
-│   ├── 📁 docker/
-│   │   ├── 🐋 Dockerfile
-│   │   ├── 🐋 docker-compose.yml
-│   │   └── 🐋 .dockerignore
-│   │
-│   ├── 📁 kubernetes/
-│   │   ├── 📁 manifests/
-│   │   │   ├── 🐙 deployment.yaml
-│   │   │   ├── 🐙 service.yaml
-│   │   │   ├── 🐙 configmap.yaml
-│   │   │   └── 🐙 ingress.yaml
-│   │   │
-│   │   └── 📁 helm/
-│   │       └── 📁 crypto-gateway/
-│   │           ├── 🐙 Chart.yaml
-│   │           ├── 📁 templates/
-│   │           └── 📁 values/
-│   │
-│   └── 📁 scripts/
-│       ├── 📜 init-db.sql
-│       ├── 📜 migrate.sh
-│       └── 📜 healthcheck.sh
-│
-├── 📁 tests/                          # Testes
-│   ├── 📁 unit/
-│   │   ├── 📁 core/
-│   │   ├── 📁 services/
-│   │   └── 📁 utils/
-│   │
-│   ├── 📁 integration/
-│   │   ├── 📁 api/
-│   │   ├── 📁 database/
-│   │   └── 📁 blockchain/
-│   │
-│   └── 📁 e2e/
-│       ├── 📁 scenarios/
-│       └── 📁 fixtures/
-│
-├── 📁 docs/                           # Documentação
-│   ├── 📁 api/
-│   │   ├── 📘 openapi.yaml
-│   │   └── 📘 postman_collection.json
-│   │
-│   ├── 📁 architecture/
-│   │   ├── 🖼️ hexagonal_architecture.md
-│   │   ├── 🖼️ sequence_diagrams/
-│   │   └── 🖼️ component_diagram.md
-│   │
-│   ├── 📁 setup/
-│   │   ├── 📘 installation.md
-│   │   ├── 📘 configuration.md
-│   │   └── 📘 deployment.md
-│   │
-│   └── 📁 adr/                        # Architecture Decision Records
-│       ├── 📘 001-hexagonal-architecture.md
-│       ├── 📘 002-database-choice.md
-│       └── 📘 003-blockchain-integration.md
-│
-├── 📁 scripts/                        # Scripts utilitários
-│   ├── 📜 build.sh
-│   ├── 📜 test.sh
-│   ├── 📜 lint.sh
-│   └── 📜 codegen.sh                  # Geração de código
-│
-├── 📁 web/                            # Frontend admin (opcional)
-│   └── 📁 static/
-│       ├── 📁 css/
-│       ├── 📁 js/
-│       └── 📁 templates/
-│
-├── 📄 .env.example                    # Variáveis de ambiente exemplo
-├── 📄 .gitignore
-├── 📄 go.mod
-├── 📄 go.sum
-├── 📄 Makefile                        # Comandos automatizados
-├── 📄 docker-compose.yml              # Desenvolvimento
-├── 📄 docker-compose.test.yml         # Testes
-├── 📄 docker-compose.prod.yml         # Produção
-└── 📄 README.md
+```bash
+make build      # compile to bin/payment-gateway
+make test       # go test ./...
+make lint       # go vet ./...
+make docker-up  # full local stack (gateway + Postgres + Redis + Prometheus + Grafana)
+```
