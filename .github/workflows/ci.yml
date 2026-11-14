@@ -1,0 +1,162 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOFLAGS: -mod=readonly
+
+jobs:
+  build-test:
+    name: Build, test and smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Check formatting
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "The following files are not formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: make build
+
+      - name: Test
+        run: go test -race ./...
+
+      - name: Smoke test
+        env:
+          PORT: "18080"
+          APP_ENV: test
+          BLOCKCHAIN_MOCK: "true"
+          DATABASE_DRIVER: memory
+          CACHE_DRIVER: memory
+          LOG_FORMAT: text
+          INBOUND_WEBHOOK_SECRET: ci-inbound-secret
+        run: |
+          set -euo pipefail
+
+          ./bin/payment-gateway serve > /tmp/gateway.log 2>&1 &
+          gateway_pid=$!
+
+          cleanup() {
+            kill "$gateway_pid" 2>/dev/null || true
+            wait "$gateway_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          ready=0
+          for _ in $(seq 1 30); do
+            if curl -fsS "http://127.0.0.1:${PORT}/healthz" >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo "Gateway did not become healthy"
+            cat /tmp/gateway.log
+            exit 1
+          fi
+
+          curl -fsS "http://127.0.0.1:${PORT}/healthz"
+          echo
+
+          register=$(curl -fsS -X POST "http://127.0.0.1:${PORT}/v1/merchants/register" \
+            -H "Content-Type: application/json" \
+            -d '{"name":"CI Merchant","email":"ci-merchant@example.com"}')
+          api_key=$(REGISTER_JSON="$register" python3 -c 'import json, os; print(json.loads(os.environ["REGISTER_JSON"])["data"]["api_key"])')
+          if [ -z "$api_key" ]; then
+            echo "merchant registration did not return an API key"
+            exit 1
+          fi
+
+          created=$(curl -fsS -X POST "http://127.0.0.1:${PORT}/v1/payments" \
+            -H "X-API-Key: $api_key" \
+            -H "Content-Type: application/json" \
+            -d '{"amount":"1.0","currency":"ETH","blockchain":"ethereum","network":"sepolia","reference":"ci-smoke"}')
+          created_fields=$(CREATE_JSON="$created" python3 -c 'import json, os; payment = json.loads(os.environ["CREATE_JSON"])["data"]; print(payment["id"], payment["deposit_address"], payment["crypto_amount"])')
+          read -r payment_id deposit_address crypto_amount <<< "$created_fields"
+          if [ -z "$payment_id" ] || [ -z "$deposit_address" ] || [ -z "$crypto_amount" ]; then
+            echo "payment creation did not return the expected fields"
+            exit 1
+          fi
+
+          inbound_body=$(DEPOSIT_ADDRESS="$deposit_address" CRYPTO_AMOUNT="$crypto_amount" python3 -c 'import json, os; print(json.dumps({"blockchain":"ethereum","network":"sepolia","tx_hash":"0x" + "a" * 64,"from":"0x0000000000000000000000000000000000000001","to":os.environ["DEPOSIT_ADDRESS"],"amount":os.environ["CRYPTO_AMOUNT"],"confirmations":12,"status":"confirmed"}, separators=(",", ":")))')
+          timestamp=$(date +%s)
+          signature=$(printf '%s.%s' "$timestamp" "$inbound_body" | openssl dgst -sha256 -hmac "$INBOUND_WEBHOOK_SECRET" -hex | awk '{print $2}')
+
+          webhook=$(curl -fsS -X POST "http://127.0.0.1:${PORT}/v1/webhooks/blockchain" \
+            -H "Content-Type: application/json" \
+            -H "X-Webhook-Timestamp: $timestamp" \
+            -H "X-Signature: sha256=$signature" \
+            -d "$inbound_body")
+          status=$(WEBHOOK_JSON="$webhook" python3 -c 'import json, os; print(json.loads(os.environ["WEBHOOK_JSON"])["data"]["status"])')
+          if [ "$status" != "succeeded" ]; then
+            echo "payment status after webhook = $status, want succeeded"
+            exit 1
+          fi
+
+          payment=$(curl -fsS "http://127.0.0.1:${PORT}/v1/payments/${payment_id}" \
+            -H "X-API-Key: $api_key")
+          tx_hash=$(PAYMENT_JSON="$payment" python3 -c 'import json, os; print(json.loads(os.environ["PAYMENT_JSON"])["data"]["tx_hash"])')
+          if [ -z "$tx_hash" ]; then
+            echo "payment was not updated with a transaction hash"
+            exit 1
+          fi
+
+          curl -fsS "http://127.0.0.1:${PORT}/" > /tmp/index.html
+          grep -q "Blockchain Payment Gateway" /tmp/index.html
+          curl -fsS "http://127.0.0.1:${PORT}/metrics" > /tmp/metrics.txt
+          grep -q "http_requests_total" /tmp/metrics.txt
+
+          echo "Smoke test passed: payment ${payment_id} is ${status}"
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: payment-gateway-linux-amd64
+          path: bin/payment-gateway
+          if-no-files-found: error
+          retention-days: 7
+
+  docker:
+    name: Build container image
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build-test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -f deployments/Dockerfile -t payment-gateway:ci .
